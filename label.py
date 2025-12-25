@@ -10,11 +10,8 @@ import math
 # ==========================================
 INPUT_FILE = 'mt5_data.csv'       # Your original MT5 export
 OUTPUT_FILE = 'labeled_data.csv'  # Where labels are saved
-PAGE_SIZE = 200                   # Number of candles per page
+PAGE_SIZE = 200                   # Candles per page
 # ==========================================
-
-# 1. LOAD DATA FUNCTION (Same robust logic as before)
-# ... inside labeler_v2.py ...
 
 def load_data():
     if os.path.exists(OUTPUT_FILE):
@@ -55,110 +52,116 @@ def load_data():
     print(f"✅ Loaded {len(df)} candles!")
     return df
 
-# Load initial data
-df_initial = load_data()
-
 app = dash.Dash(__name__)
 
-# 2. LAYOUT
-app.layout = html.Div([
-    html.H3("MT5 Data Labeler (Paged)", style={'textAlign': 'center'}),
+# ==========================================
+# DYNAMIC LAYOUT (Fixes the Reload Issue)
+# ==========================================
+def serve_layout():
+    # This runs EVERY time you refresh the page
+    df_fresh = load_data()
     
-    # CONTROL PANEL (Pagination + Save)
-    html.Div([
-        # Existing buttons...
-        html.Button('Previous', id='btn-prev', n_clicks=0, style={'marginRight': '10px'}),
-        html.Span(id='page-info', style={'fontWeight': 'bold', 'margin': '0 10px'}),
-        html.Button('Next', id='btn-next', n_clicks=0, style={'marginLeft': '10px', 'marginRight': '30px'}),
+    return html.Div([
+        html.H3("MT5 Data Labeler", style={'textAlign': 'center', 'fontFamily': 'Arial'}),
         
-        # --- NEW: JUMP TO PAGE ---
-        html.Span("Go to:", style={'marginLeft': '20px'}),
-        dcc.Input(id='input-page-jump', type='number', min=1, step=1, style={'width': '50px', 'marginLeft': '5px'}),
-        html.Button('Go', id='btn-go', n_clicks=0, style={'marginLeft': '5px', 'marginRight': '30px'}),
-        # -------------------------
+        # CONTROL BAR
+        html.Div([
+            # Navigation
+            html.Button('Previous', id='btn-prev', n_clicks=0, style={'padding': '5px 15px'}),
+            html.Span(id='page-info', style={'fontWeight': 'bold', 'margin': '0 15px'}),
+            html.Button('Next', id='btn-next', n_clicks=0, style={'padding': '5px 15px', 'marginRight': '30px'}),
+            
+            # Jump to Page
+            html.Span("Go to:", style={'marginLeft': '20px'}),
+            dcc.Input(id='input-page-jump', type='number', min=1, step=1, style={'width': '50px', 'marginLeft': '5px'}),
+            html.Button('Go', id='btn-go', n_clicks=0, style={'marginLeft': '5px', 'marginRight': '40px'}),
 
-        html.Button('Save to CSV', id='btn-save', n_clicks=0, 
-                   style={'backgroundColor': 'green', 'color': 'white'}),
-        html.Span(id='save-status', style={'marginLeft': '10px', 'color': 'green'})
-    ], style={'textAlign': 'center', 'marginBottom': '10px'}),
+            # Save Button
+            html.Button('Save Progress', id='btn-save', n_clicks=0, 
+                       style={'backgroundColor': 'green', 'color': 'white', 'fontWeight': 'bold', 'padding': '5px 15px'}),
+            html.Span(id='save-status', style={'marginLeft': '10px', 'color': 'green', 'fontWeight': 'bold'})
+        ], style={'textAlign': 'center', 'marginBottom': '10px', 'backgroundColor': '#f0f0f0', 'padding': '10px'}),
 
-    # CHART
-    dcc.Graph(id='candle-chart', style={'height': '80vh'}),
-    
-    # STORES (Memory)
-    # 1. The Full Dataset
-    dcc.Store(id='store-data', data=df_initial.to_dict('records')),
-    # 2. The Current Page Number (starts at 0)
-    dcc.Store(id='store-page', data=0)
-])
+        # CHART
+        dcc.Graph(id='candle-chart', style={'height': '80vh'}),
+        
+        # STORES (Memory)
+        dcc.Store(id='store-data', data=df_fresh.to_dict('records')),
+        dcc.Store(id='store-page', data=0)
+    ])
 
-# 3. MAIN CALLBACK
+# Set the layout to the function, not the result
+app.layout = serve_layout
+
+# ==========================================
+# CALLBACK
+# ==========================================
 @app.callback(
     [Output('candle-chart', 'figure'),
      Output('store-data', 'data'),
      Output('store-page', 'data'),
      Output('page-info', 'children'),
      Output('save-status', 'children'),
-     Output('input-page-jump', 'value')], # Update input box to show current page
+     Output('input-page-jump', 'value')],
     
     [Input('btn-prev', 'n_clicks'),
      Input('btn-next', 'n_clicks'),
-     Input('btn-go', 'n_clicks'),        # <--- NEW INPUT
+     Input('btn-go', 'n_clicks'),
      Input('btn-save', 'n_clicks'),
      Input('candle-chart', 'clickData')],
     
     [State('store-data', 'data'),
      State('store-page', 'data'),
-     State('input-page-jump', 'value')]  # <--- NEW STATE
+     State('input-page-jump', 'value')]
 )
 def update_all(btn_prev, btn_next, btn_go, btn_save, clickData, 
                current_data, current_page, jump_value):
     
     ctx = callback_context
-    if not ctx.triggered:
-        trigger_id = 'No Trigger'
-    else:
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else 'No Trigger'
 
-    # Convert dictionary back to DataFrame
+    # Reconstruct DataFrame
     df = pd.DataFrame(current_data)
-    # SAFETY: Ensure time is datetime
+    # Ensure date format is correct for Plotly
     df['time'] = pd.to_datetime(df['time'])
     
-    total_pages = math.ceil(len(df) / PAGE_SIZE)
+    total_pages = math.ceil(len(df) / PAGE_SIZE) if len(df) > 0 else 1
     msg = ""
 
-    # --- HANDLE PAGINATION & JUMP ---
+    # --- 1. HANDLING NAVIGATION ---
     if trigger_id == 'btn-prev':
         current_page = max(0, current_page - 1)
     elif trigger_id == 'btn-next':
         current_page = min(total_pages - 1, current_page + 1)
     elif trigger_id == 'btn-go' and jump_value is not None:
-        # Convert 1-based user input to 0-based index
         target_page = int(jump_value) - 1
-        # Ensure it stays within valid bounds
         if 0 <= target_page < total_pages:
             current_page = target_page
 
-    # --- HANDLE SAVE ---
+    # --- 2. HANDLING SAVE ---
     if trigger_id == 'btn-save':
         df.to_csv(OUTPUT_FILE, index=False)
         msg = "Saved!"
 
-    # --- HANDLE LABELING (CLICK) ---
+    # --- 3. HANDLING TOGGLE (LABEL/UNLABEL) ---
     if trigger_id == 'candle-chart' and clickData:
         clicked_x = clickData['points'][0]['x']
+        
+        # Find the exact row with this timestamp
         mask = df['time'] == clicked_x
         if mask.any():
-            val = df.loc[mask, 'label_breakout'].values[0]
-            df.loc[mask, 'label_breakout'] = not val
+            # Get current value (True/False)
+            current_val = df.loc[mask, 'label_breakout'].values[0]
+            
+            # Flip it! (If True -> False. If False -> True)
+            df.loc[mask, 'label_breakout'] = not current_val
 
-    # --- SLICE DATA ---
+    # --- 4. SLICING & DRAWING ---
     start_idx = current_page * PAGE_SIZE
     end_idx = start_idx + PAGE_SIZE
     df_page = df.iloc[start_idx:end_idx].copy()
 
-    # --- DRAW CHART ---
+    # Base Candle Chart
     fig = go.Figure(data=[go.Candlestick(
         x=df_page['time'],
         open=df_page['open'], high=df_page['high'],
@@ -166,6 +169,7 @@ def update_all(btn_prev, btn_next, btn_go, btn_save, clickData,
         name='OHLC'
     )])
 
+    # Draw Blue Triangles ONLY for rows where label_breakout == True
     labeled_page = df_page[df_page['label_breakout'] == True]
     if not labeled_page.empty:
         fig.add_trace(go.Scatter(
@@ -176,9 +180,9 @@ def update_all(btn_prev, btn_next, btn_go, btn_save, clickData,
             name='Breakout'
         ))
 
-    # Dynamic UI Revision (resets zoom only when page changes)
+    # Layout Updates (Preserve Zoom)
     fig.update_layout(
-        uirevision=f'page-{current_page}', 
+        uirevision=f'page-{current_page}',  # Resets zoom only when page changes
         title=f'Page {current_page + 1} of {total_pages}',
         xaxis_rangeslider_visible=False,
         dragmode='pan',
@@ -187,7 +191,7 @@ def update_all(btn_prev, btn_next, btn_go, btn_save, clickData,
 
     page_info_text = f"Page {current_page + 1} / {total_pages}"
 
-    # Return everything (Current Page + 1 goes back to the input box)
+    # Return Data
     return fig, df.to_dict('records'), current_page, page_info_text, msg, (current_page + 1)
 
 if __name__ == '__main__':
