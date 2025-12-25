@@ -1,85 +1,109 @@
 @echo off
 TITLE Auto-Installer & Launcher for MT5 Labeler
+CLS
 
-:: ========================================================
-:: CONFIGURATION
-:: ========================================================
-:: Direct link to Python 3.11 Installer (Stable)
-set PYTHON_URL=https://www.python.org/ftp/python/3.11.5/python-3.11.5-amd64.exe
-set PYTHON_INSTALLER=python_installer.exe
-set VENV_DIR=venv
-:: ========================================================
+echo =========================================================
+echo    MT5 LABELER APP - ONE CLICK SETUP
+echo =========================================================
+echo.
 
-echo ---------------------------------------------------
-echo      MT5 Labeler App - Auto Setup Script
-echo ---------------------------------------------------
-
-:: 1. CHECK IF PYTHON IS INSTALLED
-python --version >nul 2>&1
-IF %ERRORLEVEL% EQU 0 (
-    echo [CHECK] Python is already installed.
-    goto :SETUP_VENV
+:: -----------------------------------------------------------
+:: 1. CHECK INTERNET (Needed for first run)
+:: -----------------------------------------------------------
+ping www.google.com -n 1 -w 1000 >nul
+IF %ERRORLEVEL% NEQ 0 (
+    echo [WARNING] No Internet connection detected.
+    echo If this is the FIRST time running this, it will fail.
+    echo If you have already run this before, it might work.
+    echo.
 )
 
-echo [INFO] Python not found!
-echo [INFO] Downloading Python 3.11 (This may take a minute)...
+:: -----------------------------------------------------------
+:: 2. CHECK IF PYTHON IS INSTALLED
+:: -----------------------------------------------------------
+python --version >nul 2>&1
+IF %ERRORLEVEL% EQU 0 (
+    echo [OK] Python is already installed.
+    goto :SETUP_ENVIRONMENT
+)
 
-:: 2. DOWNLOAD PYTHON INSTALLER (Using PowerShell)
-powershell -Command "Invoke-WebRequest -Uri '%PYTHON_URL%' -OutFile '%PYTHON_INSTALLER%'"
+echo [INFO] Python not found. Starting automatic installation...
+echo        This may take 1-3 minutes. Please do not close this window.
 
-IF NOT EXIST "%PYTHON_INSTALLER%" (
-    echo [ERROR] Failed to download Python. Please check your internet connection.
+:: -----------------------------------------------------------
+:: 3. DOWNLOAD PYTHON 3.11 (Stable)
+:: -----------------------------------------------------------
+set PYTHON_URL=https://www.python.org/ftp/python/3.11.5/python-3.11.5-amd64.exe
+set INSTALLER=python_installer.exe
+
+echo [DOWNLOADING] Fetching Python installer...
+powershell -Command "Invoke-WebRequest -Uri '%PYTHON_URL%' -OutFile '%INSTALLER%'"
+
+IF NOT EXIST "%INSTALLER%" (
+    echo [ERROR] Failed to download Python. Check your internet connection.
     pause
     exit
 )
 
-:: 3. INSTALL PYTHON SILENTLY
-echo [INFO] Installing Python... (Please wait, this runs in background)
-:: Arguments: /quiet = no UI, PrependPath=1 = Add to CMD, Include_test=0 = lighter install
-"%PYTHON_INSTALLER%" /quiet InstallAllUsers=1 PrependPath=1 Include_test=0
+:: -----------------------------------------------------------
+:: 4. INSTALL PYTHON SILENTLY
+:: -----------------------------------------------------------
+echo [INSTALLING] Installing Python... (Accept any Pop-ups)
+:: /quiet = No UI
+:: PrependPath=1 = Add to command line (Crucial)
+:: InstallAllUsers=0 = Install just for this user (No Admin needed usually)
+"%INSTALLER%" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0
 
-:: Clean up the installer file
-del "%PYTHON_INSTALLER%"
+:: Clean up
+del "%INSTALLER%"
 
-:: Verify installation
+:: Refresh environment variables so we can use 'python' immediately
+set PATH=%PATH%;%LocalAppData%\Programs\Python\Python311;%LocalAppData%\Programs\Python\Python311\Scripts
+
 python --version >nul 2>&1
 IF %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Python installation failed.
-    echo You may need to run this script as Administrator.
+    echo [ERROR] Python install seemed to work, but command not found.
+    echo Please restart your computer and try again.
     pause
     exit
 )
 echo [SUCCESS] Python installed successfully!
 
-:: ========================================================
-:: :SETUP_VENV
-:: ========================================================
-:SETUP_VENV
+:: -----------------------------------------------------------
+:: 5. SETUP VIRTUAL ENVIRONMENT & DEPENDENCIES
+:: -----------------------------------------------------------
+:SETUP_ENVIRONMENT
 
-:: 4. CREATE VIRTUAL ENVIRONMENT
-IF NOT EXIST "%VENV_DIR%" (
-    echo [INFO] Creating virtual environment...
-    python -m venv %VENV_DIR%
+IF NOT EXIST "venv" (
+    echo [SETUP] Creating isolated workspace (venv)...
+    python -m venv venv
 )
 
-:: 5. ACTIVATE & INSTALL LIBRARIES
-echo [INFO] Checking required libraries...
-call %VENV_DIR%\Scripts\activate
+echo [SETUP] Checking libraries...
+call venv\Scripts\activate
 
-:: Upgrade pip just in case
-python -m pip install --upgrade pip --quiet
-
-:: Install packages one by one to ensure they exist
+:: This command installs pandas, dash, and plotly automatically
+:: It skips download if they are already installed
 pip install dash pandas plotly --quiet
 
-:: 6. RUN THE APP
+:: -----------------------------------------------------------
+:: 6. LAUNCH THE APP
+:: -----------------------------------------------------------
+CLS
+echo =========================================================
+echo    READY! APP IS STARTING...
+echo =========================================================
 echo.
-echo ===================================================
-echo    LAUNCHING APP...
-echo    Please open your browser to: http://127.0.0.1:8050
-echo ===================================================
+echo    1. Your browser should open automatically.
+echo    2. If not, go to: http://127.0.0.1:8050/
+echo    3. Keep this black window OPEN while using the app.
 echo.
 
+:: Opens the browser automatically after 5 seconds
+timeout /t 5 >nul
+start http://127.0.0.1:8050/
+
+:: Run the Python Code
 python labeler_final.py
 
 pause
